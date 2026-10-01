@@ -4,7 +4,7 @@ A Minecraft mod to record game sessions and replay them afterwards from any pers
 ## Building
 Make sure your sub-projects are up-to-date: `git submodule update --init --recursive`
 
-For compiling 1.7.10, you must run `./gradlew :jGui:1.7.10:setupDecompWorkspace :1.7.10:setupDecompWorkspace` once after the initial clone. This may take quite some time.
+For Forge 1.7.10, use Java 8 and the included Gradle 5.4.1 wrapper. Run `./gradlew :jGui:1.7.10:setupDecompWorkspace :1.7.10:setupDecompWorkspace` once after the initial clone, then `./gradlew :jGui:1.7.10:build :1.7.10:build`. The first build generates source through the intermediate Minecraft versions and may take quite some time.
 
 ### No IDE
 You can build the mod by running `./gradlew build` (or just `./gradlew shadowJar`). You can then find the final jar files in `versions/$MCVERSION/build/libs/`.

@@ -1,6 +1,5 @@
 pluginManagement {
     repositories {
-        mavenLocal()
         gradlePluginPortal()
         mavenCentral()
         google()
@@ -11,7 +10,7 @@ pluginManagement {
         eachPlugin {
             when (requested.id.id) {
                 "com.replaymod.preprocess" -> {
-                    useModule("com.github.replaymod:preprocessor:${requested.version}")
+                    useModule("com.github.ReplayMod.preprocessor:preprocessor:${requested.version}")
                 }
             }
         }
