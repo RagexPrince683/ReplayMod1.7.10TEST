@@ -159,6 +159,15 @@ afterEvaluate {
         compileClasspath += configurations.minecraft + configurations.minecraftDeps
         runtimeClasspath += configurations.minecraft + configurations.minecraftDeps + configurations.forgeGradleStartClass
     }
+    // FG 1.2 adds these configurations as runtime dependencies, but Gradle 5.4.1
+    // does not put their files on the JavaExec classpath. Keep the bridge on
+    // Forge's launch tasks so the generated start classes stay out of the mod jar.
+    ['runClient', 'runServer', 'debugClient', 'debugServer'].each { name ->
+        def launch = tasks.getByName(name)
+        launch.classpath configurations.minecraft, configurations.minecraftDeps,
+                configurations.forgeGradleStartClass, files(jGui.tasks.jar.archivePath)
+        launch.dependsOn tasks.makeStart, jGui.tasks.jar
+    }
     tasks.reobf.obfOutput.all { artifact ->
         artifact.getFile() // force resolve
         artifact.classpath += configurations.minecraft + configurations.minecraftDeps
