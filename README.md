@@ -4,17 +4,13 @@ A Minecraft mod to record game sessions and replay them afterwards from any pers
 ## Building
 Make sure your sub-projects are up-to-date: `git submodule update --init --recursive`
 
-For Forge 1.7.10, use Java 8 and the included Gradle 5.4.1 wrapper. Run `./gradlew :jGui:1.7.10:setupDecompWorkspace :1.7.10:setupDecompWorkspace` once after the initial clone, then `./gradlew :jGui:1.7.10:build :1.7.10:build`. The first build generates source through the intermediate Minecraft versions and may take quite some time.
+This project targets Minecraft Forge 1.7.10 only. Use Java 8 and the included Gradle 5.4.1 wrapper. After the source conversion described below, run `./gradlew :jGui:1.7.10:setupDecompWorkspace :1.7.10:setupDecompWorkspace` after the initial clone, then `./gradlew :1.7.10:build`. The final jar is placed in `versions/1.7.10/build/libs/`.
 
-### No IDE
-You can build the mod by running `./gradlew build` (or just `./gradlew shadowJar`). You can then find the final jar files in `versions/$MCVERSION/build/libs/`.
-You can also build single versions by running `./gradlew :1.8:build` (or just `./gradlew :1.8:shadowJar`) (builds the MC 1.8 version).
+The current shared Java source is still in the old 1.16.4 naming and conditional format. It must be converted to 1.7.10 source before a clean compile is possible; Gradle no longer configures intermediate Minecraft projects to perform that conversion.
 
 ### IntelliJ
 Ensure you have at least IDEA 2020.1.
-Build the mod via Gradle as explained above at least once (`./gradlew compileJava` should be sufficient). This will ensure that the sources for all MC versions are generated.
-Then import the Gradle project from within IDEA: File -> Open -> build.gradle -> Open as Project
-Finally configure IDEA to build everything by itself instead of delegating it to Gradle (cause that is slow): File -> Settings -> Build, Execution, Deployment -> Build Tools -> Gradle -> Build and run using: IntelliJ IDEA
+Import the root Gradle project after the 1.7.10 source conversion is complete.
 
 ### Eclipse
 
@@ -30,64 +26,13 @@ The `master` branch is solely to be used for the `version.json` file that contai
 used by the clients to check for updates of this mod.
 
 ### The Preprocessor
-To support multiple Minecraft versions with the ReplayMod, a [JCP](https://github.com/raydac/java-comment-preprocessor)-inspired preprocessor is used:
-```java
-        //#if MC>=11200
-        // This is the block for MC >= 1.12.0
-        category.addDetail(name, callable::call);
-        //#else
-        //$$ // This is the block for MC < 1.12.0
-        //$$ category.setDetail(name, callable::call);
-        //#endif
-```
-Any comments starting with `//$$` will automatically be introduced / removed based on the surrounding condition(s).
-Normal comments are left untouched. The `//#else` branch is optional.
-
-Conditions can be nested arbitrarily but their indention shall always be equal to the indention of the code at the `//#if` line.
-The `//$$` shall be aligned with the inner-most `//#if`.
-```java
-    //#if MC>=10904
-    public CPacketResourcePackStatus makeStatusPacket(String hash, Action action) {
-        //#if MC>=11002
-        return new CPacketResourcePackStatus(action);
-        //#else
-        //$$ return new CPacketResourcePackStatus(hash, action);
-        //#endif
-    }
-    //#else
-    //$$ public C19PacketResourcePackStatus makeStatusPacket(String hash, Action action) {
-    //$$     return new C19PacketResourcePackStatus(hash, action);
-    //$$ }
-    //#endif
-```
-Code for the more recent MC version shall be placed in the first branch of the if-else-construct.
-Version-dependent import statements shall be placed separately from and after all other imports.
-Common version dependent code (including the fml and forge event bus) are available as static methods/fields in the `MCVer` class.
-
-The source code in `src/main` is generally for the most recent Minecraft version and is automatically passed through the
-preprocessor when any of the other versions are built (gradle projects `:1.8`, `:1.8.9`, etc.).
-Do **NOT** edit any of the code in `versions/$MCVERSION/build/` as it is automatically generated and will be overwritten without warning.
-
-You can change the version of the code in `src/main` if you wish to develop/debug with another version of Minecraft:
-```bash
-./gradle :1.9.4:setCoreVersion # switches all sources in src/main to 1.9.4
-```
-If you do so, you'll also have to refresh the project in your IDE.
-
-Make sure to switch back to the most recent branch before committing!
-Care should also be taken that switching to a different branch and back doesn't introduce any uncommitted changes (e.g. due to different indention, especially in case of nested conditions).
-
-Some files may use the same preprocessor with different keywords.
-If required, more file extensions and keywords can be added in the `preprocess` block of the `versions/common.gradle` script.
+The shared Java and resource sources still contain ReplayMod preprocessor directives. The 1.7.10 Gradle project keeps the preprocessor with `MC=10710` and `FABRIC=0`. The old mapping chain and intermediate Minecraft projects have been removed. The shared source tree still needs a one-time 1.7.10 source and name conversion before compilation.
 
 ### Versioning
 The ReplayMod uses the versioning scheme outlined [here](http://mcforge.readthedocs.io/en/latest/conventions/versioning/)
-with three changes:
+with these changes:
 - No `MAJORAPI`, the ReplayMod does not provide any external API
-- "Updating to a new Minecraft version" should not increment `MAJORMOD`, we maintain one version of the ReplayMod
-for each version of Minecraft and all these versions share the same feature set (and most bugs). We therefore try to
-keep the version name the same for all of them (with the exception of `MCVERSION` of course). This also means that the
-"Multiple Minecraft Version" section does not apply.
+- The Minecraft target is fixed at Forge 1.7.10.
 - For pre-releases the shorter `-bX` is used instead of `-betaX`
 
 When a new version is (pre-)release, a new commit modifying the `version.txt` file should be added and the

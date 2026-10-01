@@ -1,27 +1,7 @@
 import groovy.json.JsonOutput
 import java.io.ByteArrayOutputStream
 
-buildscript {
-    // Mercury/JDT asks for version ranges; current Eclipse releases require newer Java.
-    // Keep Loom's source remapper on the Java 8-compatible Eclipse platform set.
-    configurations["classpath"].resolutionStrategy.force(
-            "org.eclipse.platform:org.eclipse.core.commands:3.9.800",
-            "org.eclipse.platform:org.eclipse.core.contenttype:3.7.1000",
-            "org.eclipse.platform:org.eclipse.core.expressions:3.7.100",
-            "org.eclipse.platform:org.eclipse.core.filesystem:1.7.700",
-            "org.eclipse.platform:org.eclipse.core.jobs:3.11.0",
-            "org.eclipse.platform:org.eclipse.core.resources:3.14.0",
-            "org.eclipse.platform:org.eclipse.core.runtime:3.22.0",
-            "org.eclipse.platform:org.eclipse.equinox.app:1.5.100",
-            "org.eclipse.platform:org.eclipse.equinox.common:3.11.0",
-            "org.eclipse.platform:org.eclipse.equinox.preferences:3.9.100",
-            "org.eclipse.platform:org.eclipse.equinox.registry:3.10.200",
-            "org.eclipse.platform:org.eclipse.text:3.11.0"
-    )
-}
-
 plugins {
-    id("fabric-loom") version "0.5-SNAPSHOT" apply false
     id("com.replaymod.preprocess") version "24ac087"
     id("com.github.hierynomus.license") version "0.15.0"
 }
@@ -43,11 +23,6 @@ if (gitDescribe().endsWith("*")) {
 }
 
 group = "com.replaymod"
-
-// Loom tries to find the active mixin version by recursing up to the root project and checking each project's
-// compileClasspath and build script classpath (in that order). Since we've loom in our root project's classpath,
-// loom will only find it after checking the root project's compileClasspath (which doesn't exist by default).
-configurations.register("compileClasspath")
 
 val shadowJar by tasks.creating(Copy::class) {
     into("$buildDir/libs")
@@ -200,33 +175,5 @@ val doRelease by tasks.registering {
 defaultTasks("shadowJar")
 
 preprocess {
-    "1.16.4"(11604, "yarn") {
-        "1.16.1"(11601, "yarn") {
-            "1.15.2"(11502, "yarn") {
-                "1.14.4"(11404, "yarn", file("versions/mapping-fabric-1.15.2-1.14.4.txt")) {
-                    "1.14.4-forge"(11404, "srg", file("versions/mapping-1.14.4-fabric-forge.txt")) {
-                        "1.12.2"(11202, "srg", file("versions/1.14.4-forge/mapping.txt")) {
-                            "1.12.1"(11201, "srg") {
-                                "1.12"(11200, "srg") {
-                                    "1.11.2"(11102, "srg", file("versions/1.12/mapping.txt")) {
-                                        "1.11"(11100, "srg", file("versions/1.11.2/mapping.txt")) {
-                                            "1.10.2"(11002, "srg", file("versions/1.11/mapping.txt")) {
-                                                "1.9.4"(10904, "srg") {
-                                                    "1.8.9"(10809, "srg", file("versions/1.9.4/mapping.txt")) {
-                                                        "1.8"(10800, "srg", file("versions/1.8.9/mapping.txt")) {
-                                                            "1.7.10"(10710, "srg", file("versions/1.8/mapping.txt"))
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    "1.7.10"(10710, "srg")
 }
