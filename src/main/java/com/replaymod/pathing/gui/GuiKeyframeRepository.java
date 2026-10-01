@@ -124,7 +124,7 @@ public class GuiKeyframeRepository extends GuiScreen implements Closeable, Typea
     public final GuiButton loadButton = new GuiButton().onClick(new Runnable() {
         @Override
         public void run() {
-            getMinecraft().openScreen(null);
+            MCVer.getMinecraft().openScreen(null);
             try {
                 Timeline timeline = timelines.get(selectedEntries.iterator().next().name);
                 for (Path path : timeline.getPaths()) {

@@ -1,6 +1,7 @@
 package com.replaymod.render.gui;
 
 import com.replaymod.core.ReplayMod;
+import com.replaymod.core.versions.MCVer;
 import com.replaymod.render.RenderSettings;
 import com.replaymod.render.FFmpegWriter;
 import de.johni0702.minecraft.gui.container.GuiPanel;
@@ -109,7 +110,7 @@ public class GuiExportFailed extends GuiScreen {
 
         abortButton.onClick(() -> {
             // Assume they know what they're doing
-            getMinecraft().openScreen(null);
+            MCVer.getMinecraft().openScreen(null);
         });
     }
 }

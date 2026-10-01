@@ -1,6 +1,7 @@
 package com.replaymod.replay.gui.screen;
 
 import com.replaymod.core.utils.ModCompat;
+import com.replaymod.core.versions.MCVer;
 import com.replaymod.replaystudio.data.ModInfo;
 import com.replaymod.replaystudio.util.I18n;
 import de.johni0702.minecraft.gui.container.AbstractGuiScreen;
@@ -78,7 +79,7 @@ public class GuiModCompatWarning extends AbstractGuiScreen<GuiModCompatWarning> 
             }
         }
 
-        cancelButton.onClick(() -> getMinecraft().openScreen(null));
+        cancelButton.onClick(() -> MCVer.getMinecraft().openScreen(null));
     }
 
     @Override

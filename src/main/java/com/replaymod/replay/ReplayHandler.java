@@ -639,7 +639,11 @@ public class ReplayHandler {
                 //$$ ScaledResolution
                 //#endif
                         resolution = newScaledResolution(mc);
+                //#if MC>=11400
                 guiScreen.toMinecraft().init(mc, resolution.getScaledWidth(), resolution.getScaledHeight());
+                //#else
+                //$$ guiScreen.toMinecraft().setWorldAndResolution(mc, resolution.getScaledWidth(), resolution.getScaledHeight());
+                //#endif
                 //#if MC>=11600
                 guiScreen.toMinecraft().render(new MatrixStack(), 0, 0, 0);
                 //#else
@@ -649,7 +653,11 @@ public class ReplayHandler {
                 //$$ guiScreen.toMinecraft().drawScreen(0, 0, 0);
                 //#endif
                 //#endif
+                //#if MC>=11400
                 guiScreen.toMinecraft().removed();
+                //#else
+                //$$ guiScreen.toMinecraft().onGuiClosed();
+                //#endif
 
                 mc.getFramebuffer().endWrite();
                 popMatrix();

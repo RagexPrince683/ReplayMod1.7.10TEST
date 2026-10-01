@@ -1,6 +1,7 @@
 package com.replaymod.core.gui;
 
 import com.replaymod.core.SettingsRegistry;
+import com.replaymod.core.versions.MCVer;
 import de.johni0702.minecraft.gui.container.AbstractGuiScreen;
 import de.johni0702.minecraft.gui.container.GuiPanel;
 import de.johni0702.minecraft.gui.element.GuiButton;
@@ -24,7 +25,7 @@ public class GuiReplaySettings extends AbstractGuiScreen<GuiReplaySettings> {
         final GuiButton doneButton = new GuiButton(this).setI18nLabel("gui.done").setSize(200, 20).onClick(new Runnable() {
             @Override
             public void run() {
-                getMinecraft().openScreen(parent);
+                MCVer.getMinecraft().openScreen(parent);
             }
         });
 

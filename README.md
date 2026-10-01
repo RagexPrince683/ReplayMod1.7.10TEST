@@ -4,13 +4,13 @@ A Minecraft mod to record game sessions and replay them afterwards from any pers
 ## Building
 Make sure your sub-projects are up-to-date: `git submodule update --init --recursive`
 
-This project targets Minecraft Forge 1.7.10 only. Use Java 8 and the included Gradle 5.4.1 wrapper. After the source conversion described below, run `./gradlew :jGui:1.7.10:setupDecompWorkspace :1.7.10:setupDecompWorkspace` after the initial clone, then `./gradlew :1.7.10:build`. The final jar is placed in `versions/1.7.10/build/libs/`.
+This project targets Minecraft Forge 1.7.10 only. Use Java 8 and the included Gradle 5.4.1 wrapper. After the initial clone, run `./gradlew :jGui:1.7.10:setupDecompWorkspace :1.7.10:setupDecompWorkspace`, then `./gradlew :1.7.10:build`. The final jar is placed in `versions/1.7.10/build/libs/`.
 
-The current shared Java source is still in the old 1.16.4 naming and conditional format. It must be converted to 1.7.10 source before a clean compile is possible; Gradle no longer configures intermediate Minecraft projects to perform that conversion.
+The current shared source is the authoritative source. The Gradle build preprocesses both jGui and ReplayMod through their version mapping chains before their Forge 1.7.10 `compileJava` tasks. To check compilation directly, run `./gradlew :jGui:1.7.10:compileJava :1.7.10:compileJava`.
 
 ### IntelliJ
 Ensure you have at least IDEA 2020.1.
-Import the root Gradle project after the 1.7.10 source conversion is complete.
+Import the root Gradle project with Java 8.
 
 ### Eclipse
 
@@ -26,7 +26,9 @@ The `master` branch is solely to be used for the `version.json` file that contai
 used by the clients to check for updates of this mod.
 
 ### The Preprocessor
-The shared Java and resource sources still contain ReplayMod preprocessor directives. The 1.7.10 Gradle project keeps the preprocessor with `MC=10710` and `FABRIC=0`. The old mapping chain and intermediate Minecraft projects have been removed. The shared source tree still needs a one-time 1.7.10 source and name conversion before compilation.
+The shared Java and resource sources contain ReplayMod preprocessor directives. `versions/mainProject` and `jGui/versions/mainProject` select the current 1.16.4 source as the root of each mapping chain. Intermediate Gradle projects use `preprocess-only.gradle`: they expose source sets, mapping files, and signature-only class stubs to the retained preprocessor, but they do not apply Loom or ForgeGradle, compile Java, or build jars. Only `:1.7.10` and `:jGui:1.7.10` are Minecraft build targets, using ForgeGradle 1.2.
+
+Pinned mapping and API signature inputs live in `preprocess-metadata/`. The API files contain class and member declarations only; generated stub jars stay under each project's `build/` directory. `preprocess-metadata/extract-api.py` regenerates a signature file from a mapping-era jar when these inputs need updating. The normal build does not use Python or download intermediate Minecraft versions.
 
 ### Versioning
 The ReplayMod uses the versioning scheme outlined [here](http://mcforge.readthedocs.io/en/latest/conventions/versioning/)

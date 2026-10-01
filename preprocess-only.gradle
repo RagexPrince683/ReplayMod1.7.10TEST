@@ -1,0 +1,197 @@
+import java.util.zip.GZIPInputStream
+import java.util.jar.JarEntry
+import java.util.jar.JarOutputStream
+import org.objectweb.asm.ClassWriter
+import org.objectweb.asm.Opcodes
+import org.objectweb.asm.Type
+
+buildscript {
+    repositories { mavenCentral() }
+    dependencies {
+        classpath 'org.ow2.asm:asm:6.2'
+        classpath 'com.google.guava:guava:21.0'
+    }
+}
+
+// The retained plugin recognizes Loom's tiny mapping property by extension
+// class name. This adapter supplies only that property; Loom is never applied.
+class PreprocessOnlyLoomGradleExtension {
+    final Object mappingsProvider
+    PreprocessOnlyLoomGradleExtension(File tiny) {
+        mappingsProvider = new PreprocessOnlyMappingsProvider(MAPPINGS_TINY: tiny)
+    }
+}
+class PreprocessOnlyMappingsProvider {
+    File MAPPINGS_TINY
+}
+
+apply plugin: 'java'
+repositories { mavenCentral() }
+dependencies {
+    compileOnly 'com.google.guava:guava:21.0'
+    if (!project.path.startsWith(':jGui:')) {
+        compileOnly 'io.netty:netty-all:4.1.25.Final'
+        compileOnly 'org.apache.logging.log4j:log4j-api:2.8.1'
+    }
+}
+// ForgeGradle and ReplayMod expose these source set names to the preprocessor.
+sourceSets {
+    api
+    integrationTest
+}
+
+def metadataDir = rootProject.file('preprocess-metadata')
+def metadataVersion = project.name == '1.12' && project.path.startsWith(':jGui:') ? '1.12.2' : project.name
+def unpackMetadata = { String name ->
+    def source = new File(metadataDir, name + '.gz')
+    def target = file("$buildDir/preprocess-metadata/$name")
+    if (!target.exists() || target.lastModified() < source.lastModified()) {
+        target.parentFile.mkdirs()
+        source.withInputStream { raw ->
+            new GZIPInputStream(raw).withCloseable { zipped ->
+                target.withOutputStream { output -> output << zipped }
+            }
+        }
+    }
+    target
+}
+
+if (project.name.endsWith('-forge')) {
+    def intermediary = unpackMetadata('1.14.4-forge.tsrg')
+    def official = unpackMetadata('1.14.4-forge-notch.tsrg')
+    task createMcpToSrg { ext.output = intermediary }
+    task extractSrg { ext.output = official }
+} else if (project.name in ['1.14.4', '1.15.2', '1.16.1', '1.16.4']) {
+    extensions.add('minecraft', new PreprocessOnlyLoomGradleExtension(unpackMetadata(project.name + '.tiny')))
+} else {
+    def mapping = unpackMetadata(metadataVersion + '.srg')
+    task genSrgs { ext.mcpToSrg = mapping }
+}
+
+def apiMetadata = new File(metadataDir, metadataVersion + '.api.gz')
+def supplementalApiMetadata = new File(metadataDir, metadataVersion + '-extra.api')
+def replayModApiMetadata = ['mixin-0.7.11.api.gz', 'javabridge-1.0.22.api.gz',
+        'authlib-2.1.28.api.gz', 'lwjgl-utils-27dcd66.api.gz', 'replaystudio-a1f82a7.api.gz',
+        'datafixerupper-util-4.0.26.api.gz']
+        .collect { new File(metadataDir, it) }
+def stubJar = file("$buildDir/preprocess-metadata/signatures.jar")
+task generatePreprocessStubs {
+    inputs.file(apiMetadata)
+    if (supplementalApiMetadata.exists()) inputs.file(supplementalApiMetadata)
+    if (!project.path.startsWith(':jGui:')) replayModApiMetadata.each { inputs.file(it) }
+    outputs.file(stubJar)
+    doLast {
+        stubJar.parentFile.mkdirs()
+        def input = new BufferedReader(new InputStreamReader(new GZIPInputStream(new FileInputStream(apiMetadata)), 'UTF-8'))
+        def lines = input.readLines()
+        input.close()
+        if (supplementalApiMetadata.exists()) lines.addAll(supplementalApiMetadata.readLines('UTF-8'))
+        if (!project.path.startsWith(':jGui:')) {
+            replayModApiMetadata.each { metadata ->
+                new BufferedReader(new InputStreamReader(new GZIPInputStream(new FileInputStream(metadata)), 'UTF-8'))
+                        .withCloseable { lines.addAll(it.readLines()) }
+            }
+        }
+        def nested = [:].withDefault { [] }
+        def classAccess = [:]
+        lines.each { entry ->
+            def columns = entry.split('\\t', -1)
+            if (columns[0] == 'C') {
+                classAccess[columns[1]] = columns[2] as int
+                def dollar = columns[1].lastIndexOf('$')
+                if (dollar >= 0) nested[columns[1].substring(0, dollar)] << columns[1]
+            }
+        }
+        def output = new JarOutputStream(new FileOutputStream(stubJar))
+        ClassWriter writer = null
+        String className = null
+        def writeClass = {
+            if (writer != null) {
+                writer.visitEnd()
+                output.putNextEntry(new JarEntry(className + '.class'))
+                output.write(writer.toByteArray())
+                output.closeEntry()
+            }
+        }
+        try {
+            lines.each { line ->
+                def columns = line.split('\\t', -1)
+                if (columns[0] == 'C') {
+                    writeClass()
+                    className = columns[1]
+                    writer = new ClassWriter(ClassWriter.COMPUTE_MAXS)
+                    writer.visit(Opcodes.V1_8, columns[2] as int, className, null,
+                            columns[3] ?: 'java/lang/Object',
+                            columns[4] ? columns[4].split(',') as String[] : null)
+                    def dollar = className.lastIndexOf('$')
+                    if (dollar >= 0) {
+                        def outer = className.substring(0, dollar)
+                        writer.visitInnerClass(className, outer, className.substring(dollar + 1),
+                                (columns[2] as int) | Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC)
+                    }
+                    nested[className].each { child ->
+                        writer.visitInnerClass(child, className, child.substring(className.length() + 1),
+                                classAccess[child] | Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC)
+                    }
+                } else if (columns[0] == 'F') {
+                    writer.visitField(columns[2] as int, columns[3], columns[4], null, null).visitEnd()
+                } else if (columns[0] == 'M') {
+                    def access = columns[2] as int
+                    def method = writer.visitMethod(access, columns[3], columns[4], null, null)
+                    if ((access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0) {
+                        method.visitCode()
+                        if (columns[3] == '<init>') {
+                            method.visitVarInsn(Opcodes.ALOAD, 0)
+                            method.visitMethodInsn(Opcodes.INVOKESPECIAL, 'java/lang/Object', '<init>', '()V', false)
+                            method.visitInsn(Opcodes.RETURN)
+                        } else {
+                            switch (Type.getReturnType(columns[4]).sort) {
+                                case Type.VOID: method.visitInsn(Opcodes.RETURN); break
+                                case Type.LONG: method.visitInsn(Opcodes.LCONST_0); method.visitInsn(Opcodes.LRETURN); break
+                                case Type.FLOAT: method.visitInsn(Opcodes.FCONST_0); method.visitInsn(Opcodes.FRETURN); break
+                                case Type.DOUBLE: method.visitInsn(Opcodes.DCONST_0); method.visitInsn(Opcodes.DRETURN); break
+                                case Type.ARRAY:
+                                case Type.OBJECT: method.visitInsn(Opcodes.ACONST_NULL); method.visitInsn(Opcodes.ARETURN); break
+                                default: method.visitInsn(Opcodes.ICONST_0); method.visitInsn(Opcodes.IRETURN)
+                            }
+                        }
+                        method.visitMaxs(0, 0)
+                    }
+                    method.visitEnd()
+                }
+            }
+            writeClass()
+        } finally {
+            output.close()
+        }
+    }
+}
+
+// Source-only tasks supply a classpath for PSI name resolution without
+// compiling, resolving, or downloading any intermediate Minecraft version.
+tasks.withType(org.gradle.api.tasks.compile.AbstractCompile).configureEach {
+    classpath += files(stubJar)
+    if (!project.path.startsWith(':jGui:')) {
+        // ReplayMod imports the current jGui API. Resolve those symbols from
+        // the actual 1.7.10 jGui target, without a modern Minecraft project.
+        classpath += files(rootProject.file('jGui/versions/1.7.10/build/classes/java/main'))
+    }
+    dependsOn generatePreprocessStubs
+    enabled = false
+}
+tasks.matching { it.name.startsWith('process') && it.name.endsWith('Resources') }.configureEach { enabled = false }
+tasks.withType(Jar).configureEach { enabled = false }
+
+apply plugin: 'com.replaymod.preprocess'
+
+if (!project.path.startsWith(':jGui:')) {
+    tasks.matching { it.name.startsWith('preprocess') && it.name.endsWith('Java') }
+            .configureEach { dependsOn ':jGui:1.7.10:compileJava' }
+}
+
+def (major, minor, patch) = project.name.tokenize('-')[0].tokenize('.') + ['0']
+def mcVersion = "${major}${minor.padLeft(2, '0')}${patch.padLeft(2, '0')}" as int
+preprocess {
+    vars.put('MC', mcVersion)
+    vars.put('FABRIC', mcVersion >= 11400 && !project.name.endsWith('-forge') ? 1 : 0)
+}

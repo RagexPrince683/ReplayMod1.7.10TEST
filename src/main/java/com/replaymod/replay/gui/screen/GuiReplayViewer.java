@@ -165,7 +165,7 @@ public class GuiReplayViewer extends GuiScreen {
                         } catch (IOException e) {
                             // We failed (might also be their OS)
                             e.printStackTrace();
-                            getMinecraft().openScreen(new NoticeScreen(
+                            MCVer.getMinecraft().openScreen(new NoticeScreen(
                                     //#if MC>=11400
                                     GuiReplayViewer.this::display,
                                     new TranslatableText("replaymod.gui.viewer.delete.failed1"),
@@ -225,7 +225,7 @@ public class GuiReplayViewer extends GuiScreen {
     public final GuiButton cancelButton = new GuiButton().onClick(new Runnable() {
         @Override
         public void run() {
-            getMinecraft().openScreen(null);
+            MCVer.getMinecraft().openScreen(null);
         }
     }).setSize(73, 20).setI18nLabel("replaymod.gui.cancel");
 

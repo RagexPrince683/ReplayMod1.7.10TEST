@@ -3,6 +3,7 @@ package com.replaymod.replay.gui.overlay;
 import com.replaymod.core.ReplayMod;
 import com.replaymod.core.events.KeyBindingEventCallback;
 import com.replaymod.core.events.KeyEventCallback;
+import com.replaymod.core.versions.MCVer;
 import com.replaymod.core.versions.MCVer.Keyboard;
 import com.replaymod.replay.ReplayHandler;
 import com.replaymod.replay.ReplayModReplay;
@@ -157,7 +158,7 @@ public class GuiReplayOverlay extends AbstractGuiOverlay<GuiReplayOverlay> {
     @Override
     public void draw(GuiRenderer renderer, ReadableDimension size, RenderInfo renderInfo) {
         // Do not render overlay if all hud, or this one specifically, is hidden and we're not in some popup
-        if ((getMinecraft().options.hudHidden || hidden) && isAllowUserInput()) {
+        if ((MCVer.getMinecraft().options.hudHidden || hidden) && isAllowUserInput()) {
             // Note that this only applies to when the mouse is visible, otherwise
             // the draw method isn't called in the first place
             return;
@@ -178,7 +179,7 @@ public class GuiReplayOverlay extends AbstractGuiOverlay<GuiReplayOverlay> {
     class EventHandler extends EventRegistrations {
         { on(KeyBindingEventCallback.EVENT, this::onKeyBindingEvent); }
         private void onKeyBindingEvent() {
-            GameOptions gameSettings = getMinecraft().options;
+            GameOptions gameSettings = MCVer.getMinecraft().options;
             while (gameSettings.keyChat.wasPressed() || gameSettings.keyCommand.wasPressed()) {
                 if (!isMouseVisible()) {
                     setMouseVisible(true);

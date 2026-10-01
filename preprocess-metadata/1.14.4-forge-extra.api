@@ -1,0 +1,5 @@
+C	net/minecraftforge/eventbus/api/Cancelable	9729	java/lang/Object	java/lang/annotation/Annotation
+C	net/minecraftforge/eventbus/api/Event	33	java/lang/Object	
+C	net/minecraftforge/eventbus/api/EventPriority	16401	java/lang/Enum	
+C	net/minecraftforge/eventbus/api/IEventBus	1537	java/lang/Object	
+C	net/minecraftforge/eventbus/api/SubscribeEvent	9729	java/lang/Object	java/lang/annotation/Annotation
