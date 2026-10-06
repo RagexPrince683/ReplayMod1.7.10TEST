@@ -2,14 +2,15 @@
   {
     "modid": "replaymod",
     "name": "Replay Mod",
-    "description": "A Mod which allows you to record, replay and share your Minecraft experience.",
+    "description": "Fixed Legacy Forge 1.7.10 version of A Mod which allows you to record, replay and share your Minecraft experience.",
     "version": "${version}",
     "mcversion": "${mcversion}",
     "url": "https://replaymod.com",
     "updateUrl": "https://replaymod.com/download",
     "authorList": [
       "CrushedPixel",
-      "johni0702"
+      "johni0702",
+      "RagexPrince683"
     ],
     "logoFile": "replaymod_logo.png",
     "screenshots": [],
