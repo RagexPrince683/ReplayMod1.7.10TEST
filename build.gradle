@@ -1,6 +1,7 @@
 import com.replaymod.gradle.preprocess.PreprocessTask
 import net.minecraftforge.gradle.delayed.DelayedFile
 import net.minecraftforge.gradle.tasks.user.SingleDeobfTask
+import java.util.jar.JarFile
 
 buildscript {
     repositories {
@@ -186,37 +187,122 @@ afterEvaluate {
     def devModsDirectory = rootProject.file('devmods')
     def localModJars = devModsDirectory.isDirectory() ? devModsDirectory.listFiles()
             .findAll { it.isFile() && it.name.endsWith('.jar') }.sort { it.name } : []
+    // Identify the provider by its core plugin and embedded Mixin classes,
+    // rather than depending on the filename or Forge's later --mods scan.
+    def isUniMixinsProvider = { File modJar ->
+        def jar = new JarFile(modJar)
+        try {
+            jar.manifest?.mainAttributes?.getValue('FMLCorePlugin') ==
+                    'io.github.legacymoddingmc.unimixins.all.AllCore' &&
+                    jar.getEntry('org/spongepowered/asm/launch/MixinBootstrap.class') != null
+        } finally {
+            jar.close()
+        }
+    }
+    def mixinProviders = localModJars.findAll(isUniMixinsProvider)
+    if (mixinProviders.size() > 1) {
+        throw new GradleException('Only one UniMixins runtime may be supplied in devmods')
+    }
+    def mixinProvider = mixinProviders ? mixinProviders.first() : null
+    def hasMcheliInventoryAliases = { File modJar ->
+        def jar = new JarFile(modJar)
+        try {
+            jar.manifest?.mainAttributes?.getValue('FMLCorePlugin') == 'mcheli.core.MCH_CorePlugin' &&
+                    jar.getEntry('mcheli/wrapper/W_EntityContainer.class') != null
+        } finally {
+            jar.close()
+        }
+    }
+    // Forge release jars may have SRG member names even when their Minecraft
+    // class names are already deobfuscated. notchToMcp does not rename those.
+    def hasSrgMinecraftMembers = { File modJar ->
+        def jar = new JarFile(modJar)
+        try {
+            jar.entries().find { entry ->
+                if (!entry.name.endsWith('.class')) return false
+                def stream = jar.getInputStream(entry)
+                try {
+                    def contents = new String(stream.bytes, 'ISO-8859-1')
+                    contents.contains('net/minecraft/') &&
+                            (contents =~ /(?:func|field)_\d+/).find()
+                } finally {
+                    stream.close()
+                }
+            } != null
+        } finally {
+            jar.close()
+        }
+    }
     def remappedModsDirectory = file("$buildDir/generated-devmods")
     def remapIndex = 0
+    def mixinProviderOutput = null
     def remappedModJars = localModJars.collect { modJar ->
+        def index = remapIndex++
         def output = new File(remappedModsDirectory, modJar.name + '.deobf.jar')
-        def remap = tasks.create("deobfDevMod${remapIndex++}", SingleDeobfTask) {
+        def mapping = hasSrgMinecraftMembers(modJar) ? tasks.genSrgs.srgToMcp : tasks.genSrgs.notchToMcp
+        def mappingTask = null
+        if (hasMcheliInventoryAliases(modJar)) {
+            def baseMapping = mapping
+            def adjustedMapping = file("$buildDir/tmp/devmods/mcheli-inventory-aliases-${index}.srg")
+            def aliases = '\nMD: mcheli/wrapper/W_EntityContainer/func_70295_k_ ()V mcheli/wrapper/W_EntityContainer/func_70295_k_ ()V' +
+                    '\nMD: mcheli/wrapper/W_EntityContainer/func_70305_f ()V mcheli/wrapper/W_EntityContainer/func_70305_f ()V' +
+                    '\nMD: mcheli/aircraft/MCH_BaseVehicleInventory/func_70295_k_ ()V mcheli/aircraft/MCH_BaseVehicleInventory/func_70295_k_ ()V' +
+                    '\nMD: mcheli/aircraft/MCH_BaseVehicleInventory/func_70305_f ()V mcheli/aircraft/MCH_BaseVehicleInventory/func_70305_f ()V' +
+                    '\nMD: mcheli/mob/MCH_EntityGunner/func_70035_c ()[Lnet/minecraft/item/ItemStack; mcheli/mob/MCH_EntityGunner/func_70035_c ()[Lnet/minecraft/item/ItemStack;\n'
+            mappingTask = tasks.create("prepareDevModMappings${index}") {
+                dependsOn tasks.genSrgs
+                inputs.file(baseMapping)
+                inputs.property('aliases', aliases)
+                outputs.file(adjustedMapping)
+                doLast {
+                    adjustedMapping.parentFile.mkdirs()
+                    adjustedMapping.text = baseMapping.getText('UTF-8') + aliases
+                }
+            }
+            mapping = adjustedMapping
+        }
+        def remap = tasks.create("deobfDevMod${index}", SingleDeobfTask) {
             inJar = new DelayedFile(modJar)
             outJar = new DelayedFile(output)
-            srg = new DelayedFile(tasks.genSrgs.notchToMcp)
+            srg = new DelayedFile(mapping)
             addClasspath configurations.minecraft
             addClasspath configurations.minecraftDeps
-            addClasspath files(localModJars, sourceSets.main.output, jGui.sourceSets.main.output)
-            dependsOn tasks.genSrgs
+            addClasspath files(localModJars, tasks.devJar.archivePath, jGui.tasks.jar.archivePath)
+            dependsOn tasks.genSrgs, tasks.devJar, jGui.tasks.jar
+            if (mappingTask != null) dependsOn mappingTask
             doFirst { remappedModsDirectory.mkdirs() }
         }
         client.dependsOn remap
+        if (modJar == mixinProvider) mixinProviderOutput = output
         output
     }
+    // Put the remapped jars on the initial LaunchWrapper classpath. Early
+    // transformers may resolve their classes before --mods discovery occurs.
+    // Keep UniMixins first when present, ahead of ReplayModTweaker and 0.7.
+    def earlyModJars = mixinProviderOutput == null ? remappedModJars :
+            [mixinProviderOutput] + remappedModJars.findAll { it != mixinProviderOutput }
+    client.classpath = files(earlyModJars) +
+            (mixinProviderOutput == null ? client.classpath : client.classpath - configurations.shade)
     client.args '--mods', runDirectory.toPath()
             .relativize(tasks.devJar.archivePath.canonicalFile.toPath()).toString()
     client.doFirst {
         // Only generated remaps are removed; the project-root devmods jars are untouched.
         if (remappedModsDirectory.isDirectory()) {
+            def retainedOutputs = (remappedModJars + remappedModJars.collect {
+                new File(it.path + '.md5')
+            }).toSet()
             remappedModsDirectory.listFiles().findAll {
-                it.isFile() && it.name.endsWith('.jar.deobf.jar') && !remappedModJars.contains(it)
+                it.isFile() && (it.name.endsWith('.jar.deobf.jar') ||
+                        it.name.endsWith('.jar.deobf.jar.md5')) && !retainedOutputs.contains(it)
             }.each {
                 if (!it.delete()) throw new GradleException("Unable to remove stale development mod copy: $it")
             }
         }
         def launchArgs = new ArrayList(client.args)
         def modsArgument = launchArgs.indexOf('--mods') + 1
-        def modPaths = ([tasks.devJar.archivePath] + remappedModJars)
+        // Forge scans classpath jars for mods. Adding them through --mods too
+        // duplicates their @Mod classes after early coremod discovery.
+        def modPaths = [tasks.devJar.archivePath]
                 .collect { runDirectory.toPath().relativize(it.canonicalFile.toPath()).toString() }
         if (modPaths.any { it.contains(',') }) {
             throw new GradleException("Forge 1.7.10's --mods argument cannot load a jar whose path contains a comma")
