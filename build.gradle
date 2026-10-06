@@ -168,6 +168,20 @@ afterEvaluate {
                 configurations.forgeGradleStartClass, files(jGui.tasks.jar.archivePath)
         launch.dependsOn tasks.makeStart, jGui.tasks.jar
     }
+    // ForgeGradle puts the raw jar on the classpath, but Forge 1.7.10 skips
+    // classpath coremods during ordinary mod discovery. Supply the current
+    // compiled mod through Forge's --mods development argument instead.
+    def client = tasks.runClient
+    client.classpath = files(jGui.sourceSets.main.output, tasks.devJar.archivePath) +
+            (client.classpath - files(tasks.jar.archivePath))
+    client.dependsOn tasks.devJar, jGui.tasks.classes
+    // The core plugin and tweaker must be registered before mod discovery.
+    // Keep the dev jar's manifest free of coremod entries so ForgeGradle does
+    // not inject a second copy of the plugin from the classpath.
+    client.jvmArgs '-Dfml.coreMods.load=com.replaymod.core.LoadingPlugin'
+    client.args '--tweakClass', 'com.replaymod.core.tweaker.ReplayModTweaker'
+    client.args '--mods', project.file(minecraft.runDir).canonicalFile.toPath()
+            .relativize(tasks.devJar.archivePath.canonicalFile.toPath()).toString()
     tasks.reobf.obfOutput.all { artifact ->
         artifact.getFile() // force resolve
         artifact.classpath += configurations.minecraft + configurations.minecraftDeps
@@ -280,6 +294,14 @@ jar {
                 'FMLCorePlugin': 'com.replaymod.core.LoadingPlugin',
                 'FMLAT': 'replaymod_at.cfg'
     }
+}
+
+// A development mod candidate without the release jar's coremod manifest.
+// Forge's --mods scan can then discover its @Mod classes exactly once.
+task devJar(type: Jar, dependsOn: classes) {
+    classifier = 'dev'
+    from sourceSets.main.output
+    from files(project.mixinRefMap.canonicalPath)
 }
 
 processResources {
