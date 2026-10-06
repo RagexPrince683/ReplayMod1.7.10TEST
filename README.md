@@ -8,6 +8,8 @@ This project targets Minecraft Forge 1.7.10 only. Use Java 8 and the included Gr
 
 The current shared source is the authoritative source. The Gradle build preprocesses both jGui and ReplayMod through their version mapping chains before their Forge 1.7.10 `compileJava` tasks. To check compilation directly, run `./gradlew :jGui:1.7.10:compileJava :1.7.10:compileJava`.
 
+For optional development mods, place Forge 1.7.10 `.jar` files directly in the project-root `devmods/` folder and run `./gradlew :1.7.10:runClient`. Add or remove jars there before the next launch; no build-script edit is needed. ForgeGradle remaps each local jar with the project's 1.7.10 Notch-to-MCP mappings into `versions/1.7.10/build/generated-devmods/`, then Forge's `--mods` argument loads those jars alongside the current compiled ReplayMod development jar. Forge examines these jars for normal mods and for coremods or tweakers declared in their manifests. Jars must target this Forge/Minecraft version; remapping cannot fix incompatible APIs or reflective references to obfuscated names. Jar paths cannot contain commas because Forge uses commas to separate `--mods` entries. The local jars are not ReplayMod compile dependencies and are not included in release jars.
+
 ### IntelliJ
 Ensure you have at least IDEA 2020.1.
 Import the root Gradle project with Java 8.

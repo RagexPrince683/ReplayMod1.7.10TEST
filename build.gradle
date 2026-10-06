@@ -1,4 +1,6 @@
 import com.replaymod.gradle.preprocess.PreprocessTask
+import net.minecraftforge.gradle.delayed.DelayedFile
+import net.minecraftforge.gradle.tasks.user.SingleDeobfTask
 
 buildscript {
     repositories {
@@ -180,8 +182,48 @@ afterEvaluate {
     // not inject a second copy of the plugin from the classpath.
     client.jvmArgs '-Dfml.coreMods.load=com.replaymod.core.LoadingPlugin'
     client.args '--tweakClass', 'com.replaymod.core.tweaker.ReplayModTweaker'
-    client.args '--mods', project.file(minecraft.runDir).canonicalFile.toPath()
+    def runDirectory = project.file(minecraft.runDir).canonicalFile
+    def devModsDirectory = rootProject.file('devmods')
+    def localModJars = devModsDirectory.isDirectory() ? devModsDirectory.listFiles()
+            .findAll { it.isFile() && it.name.endsWith('.jar') }.sort { it.name } : []
+    def remappedModsDirectory = file("$buildDir/generated-devmods")
+    def remapIndex = 0
+    def remappedModJars = localModJars.collect { modJar ->
+        def output = new File(remappedModsDirectory, modJar.name + '.deobf.jar')
+        def remap = tasks.create("deobfDevMod${remapIndex++}", SingleDeobfTask) {
+            inJar = new DelayedFile(modJar)
+            outJar = new DelayedFile(output)
+            srg = new DelayedFile(tasks.genSrgs.notchToMcp)
+            addClasspath configurations.minecraft
+            addClasspath configurations.minecraftDeps
+            addClasspath files(localModJars, sourceSets.main.output, jGui.sourceSets.main.output)
+            dependsOn tasks.genSrgs
+            doFirst { remappedModsDirectory.mkdirs() }
+        }
+        client.dependsOn remap
+        output
+    }
+    client.args '--mods', runDirectory.toPath()
             .relativize(tasks.devJar.archivePath.canonicalFile.toPath()).toString()
+    client.doFirst {
+        // Only generated remaps are removed; the project-root devmods jars are untouched.
+        if (remappedModsDirectory.isDirectory()) {
+            remappedModsDirectory.listFiles().findAll {
+                it.isFile() && it.name.endsWith('.jar.deobf.jar') && !remappedModJars.contains(it)
+            }.each {
+                if (!it.delete()) throw new GradleException("Unable to remove stale development mod copy: $it")
+            }
+        }
+        def launchArgs = new ArrayList(client.args)
+        def modsArgument = launchArgs.indexOf('--mods') + 1
+        def modPaths = ([tasks.devJar.archivePath] + remappedModJars)
+                .collect { runDirectory.toPath().relativize(it.canonicalFile.toPath()).toString() }
+        if (modPaths.any { it.contains(',') }) {
+            throw new GradleException("Forge 1.7.10's --mods argument cannot load a jar whose path contains a comma")
+        }
+        launchArgs[modsArgument] = modPaths.join(',')
+        client.setArgs(launchArgs)
+    }
     tasks.reobf.obfOutput.all { artifact ->
         artifact.getFile() // force resolve
         artifact.classpath += configurations.minecraft + configurations.minecraftDeps
