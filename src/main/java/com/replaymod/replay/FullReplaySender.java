@@ -122,6 +122,7 @@ import net.minecraft.network.packet.s2c.play.TitleS2CPacket;
 import net.minecraft.network.NetworkSide;
 //#else
 //$$ import org.apache.commons.io.Charsets;
+//$$ import net.minecraft.network.NetworkManager;
 //#endif
 
 import java.io.*;
@@ -221,6 +222,13 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
      * This is required as some actions such as jumping to a specified timestamp have to peek at the next packet.
      */
     protected PacketData nextPacket;
+
+    /** Whether synchronous playback reached the end of the packet stream. */
+    private boolean reachedEnd;
+    private boolean seeking;
+    //#if MC<=10710
+    //$$ private int queuedSeekPackets;
+    //#endif
 
     /**
      * Whether we're currently reading packets from the login phase.
@@ -416,6 +424,14 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
                     p = processPacket(p);
                     if (p != null) {
                         super.channelRead(ctx, p);
+                        //#if MC<=10710
+                        //$$ // The 1.7.10 network manager processes at most 1001 queued packets per call.
+                        //$$ // Keep long seeks from leaving chunk packets queued when playback is paused.
+                        //$$ if (seeking && ++queuedSeekPackets >= 1000) {
+                        //$$     ((NetworkManager) ctx.pipeline().get("packet_handler")).processReceivedPackets();
+                        //$$     queuedSeekPackets = 0;
+                        //$$ }
+                        //#endif
                     }
 
                     // If we do not give minecraft time to tick, there will be dead entity artifacts left in the world
@@ -483,7 +499,10 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
                     //#endif
                 }
             } catch (Exception e) {
-                // We'd rather not have a failure parsing one packet screw up the whole replay process
+                if (seeking) {
+                    throw new IllegalStateException("Failed to process replay packet", e);
+                }
+                // During ordinary playback, keep the existing tolerance for malformed packets.
                 e.printStackTrace();
             }
         }
@@ -728,8 +747,10 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
             final PlayerPositionLookS2CPacket ppl = (PlayerPositionLookS2CPacket) p;
             if(!hasWorldLoaded) hasWorldLoaded = true;
 
+            final ChannelHandlerContext packetContext = ctx;
             ReplayMod.instance.runLater(() -> {
-                if (mc.currentScreen instanceof DownloadingTerrainScreen) {
+                if (packetContext == ctx && packetContext.channel().isOpen()
+                        && mc.currentScreen instanceof DownloadingTerrainScreen) {
                     // Close the world loading screen manually in case we swallow the packet
                     mc.openScreen(null);
                 }
@@ -773,6 +794,9 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
                 @Override
                 @SuppressWarnings("unchecked")
                 public void run() {
+                    if (packetContext != ctx || !packetContext.channel().isOpen()) {
+                        return;
+                    }
                     if (mc.world == null || !isOnMainThread()) {
                         ReplayMod.instance.runLater(this);
                         return;
@@ -994,6 +1018,7 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
 
                         // Restart the replay.
                         hasWorldLoaded = false;
+                        reachedEnd = false;
                         lastTimeStamp = 0;
                         loginPhase = true;
                         startFromBeginning = false;
@@ -1026,6 +1051,17 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
      */
     public void stopHurrying() {
         desiredTimeStamp = -1;
+    }
+
+    public boolean hasReachedEnd() {
+        return reachedEnd;
+    }
+
+    public void setSeeking(boolean seeking) {
+        this.seeking = seeking;
+        //#if MC<=10710
+        //$$ queuedSeekPackets = 0;
+        //#endif
     }
 
     /**
@@ -1096,6 +1132,7 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
                 }
                 if (timestamp < lastTimeStamp) { // Restart the replay if we need to go backwards in time
                     hasWorldLoaded = false;
+                    reachedEnd = false;
                     lastTimeStamp = 0;
                     if (replayIn != null) {
                         replayIn.close();
@@ -1135,9 +1172,14 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
                     } catch (EOFException eof) {
                         // Shit! We hit the end before finishing our job! What shall we do now?
                         // well, let's just pretend we're done...
+                        replayIn.close();
                         replayIn = null;
+                        reachedEnd = true;
                         break;
                     } catch (IOException e) {
+                        if (seeking) {
+                            throw new UncheckedIOException(e);
+                        }
                         e.printStackTrace();
                     }
                 }
@@ -1147,6 +1189,9 @@ public class FullReplaySender extends ChannelDuplexHandler implements ReplaySend
                 lastTimeStamp = timestamp;
             }
         } catch (Exception e) {
+            if (seeking) {
+                throw new IllegalStateException("Failed to send replay packets", e);
+            }
             e.printStackTrace();
         }
     }

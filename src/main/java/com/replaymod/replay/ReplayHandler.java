@@ -173,7 +173,7 @@ public class ReplayHandler {
     void restartedReplay() {
         Preconditions.checkState(isOnMainThread(), "Must be called from Minecraft thread.");
 
-        channel.close();
+        channel.close().awaitUninterruptibly();
 
         //#if MC>=11400
         mc.mouse.unlockCursor();
@@ -679,13 +679,38 @@ public class ReplayHandler {
                 //#endif
                 //#endif
 
-                // Send the packets
-                do {
-                    replaySender.sendPacketsTill(targetTime);
-                    targetTime += 500;
-                } while (mc.player == null || mc.currentScreen instanceof DownloadingTerrainScreen);
-                replaySender.setAsyncMode(true);
+                // Send the packets, then process the new connection before checking whether its
+                // join and position packets have finished loading the world.
+                replaySender.setSeeking(true);
+                try {
+                    do {
+                        replaySender.sendPacketsTill(targetTime);
+                        //#if MC<=10710
+                        //$$ if (mc.currentScreen instanceof GuiOpeningReplay) {
+                        //$$     mc.currentScreen.handleInput();
+                        //$$ }
+                        //$$ if (mc.getNetHandler() != null) {
+                        //$$     mc.getNetHandler().getNetworkManager().processReceivedPackets();
+                        //$$ }
+                        //#endif
+                        if (mc.player != null && !(mc.currentScreen instanceof DownloadingTerrainScreen)) {
+                            break;
+                        }
+                        if (replaySender.hasReachedEnd()) {
+                            throw new IllegalStateException("Replay ended before the world finished loading");
+                        }
+                        targetTime += 500;
+                    } while (true);
+                } catch (Exception e) {
+                    replaySender.stopHurrying();
+                    replaySender.setReplaySpeed(0);
+                    Utils.error(LOGGER, overlay, CrashReport.create(e, "Failed to seek replay"), null);
+                    return;
+                } finally {
+                    replaySender.setSeeking(false);
+                }
                 replaySender.setReplaySpeed(0);
+                replaySender.setAsyncMode(true);
 
                 //#if MC<10800
                 //$$ while (mc.currentScreen instanceof GuiOpeningReplay) {
